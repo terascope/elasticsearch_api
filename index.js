@@ -453,21 +453,19 @@ module.exports = function(client, logger, _opConfig) {
         }
     }
 
-    function _canRetry(err){
-        const isRejectedError = _.get(err, 'body.error.type') === 'es_rejected_execution_exception';
-        const isConnectionError = _.get(err, 'message') === 'No Living connections';
-        return isRejectedError || isConnectionError
-    }
 
     function _errorHandler(fn, data, reject, logger) {
         const retry = retryFn(fn, data);
         return function(err) {
-            if (_canRetry(err)) {
+            const isRejectedError = _.get(err, 'body.error.type') === 'es_rejected_execution_exception';
+            const isConnectionError = _.get(err, 'message') === 'No Living connections';
+
+            if(isRejectedError || isConnectionError){
+                if(isConnectionError) setTimeout(() => reject('No Living connections timeout error'), 30000);
                 retry()
             }
             else {
-                console.log('what is the error here', err);
-                var errMsg = `invoking elasticsearch_api ${fn.name} resulted in a runtime error: ${parseError(err)}`;
+                const errMsg = `invoking elasticsearch_api ${fn.name} resulted in a runtime error: ${parseError(err)}`;
                 logger.error(errMsg);
                 reject(errMsg)
             }
