@@ -459,9 +459,8 @@ module.exports = function(client, logger, _opConfig) {
         return function(err) {
             const isRejectedError = _.get(err, 'body.error.type') === 'es_rejected_execution_exception';
             const isConnectionError = _.get(err, 'message') === 'No Living connections';
-
-            if(isRejectedError || isConnectionError){
-                if(isConnectionError) setTimeout(() => reject('No Living connections timeout error'), 30000);
+            if (isRejectedError) {
+                // this iteration we will not handle with no living connections issue
                 retry()
             }
             else {
