@@ -18,7 +18,6 @@ module.exports = function(client, logger, _opConfig) {
         retryLimit = client.__testing.limit;
     }
 
-// TODO check templating on new packages on es6
     function count(query) {
         query.size = 0;
         return _searchES(query)
