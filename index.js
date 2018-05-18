@@ -423,6 +423,49 @@ module.exports = function(client, logger, _opConfig) {
         }));
     }
 
+    function _migrate(index, migrantIndexName, mapping, recordType, clusterName) {
+        const reindexQuery = {
+            slices: 4,
+            waitForCompletion: true,
+            refresh: true,
+            body: {
+                source: {
+                    index: index
+                },
+                dest: {
+                    index: migrantIndexName
+                }
+            }
+        };
+        let docCount;
+
+        return Promise.all([
+            count({index: index}),
+            _createIndex(migrantIndexName, null, mapping, recordType, clusterName)
+        ])
+            .spread((_count) => {
+                docCount = _count;
+                return _clientRequest('reindex', reindexQuery);
+            })
+            .catch((err) => {
+                const errMsg = `could not reindex for query ${JSON.stringify(reindexQuery)}, error: ${parseError(err)}`;
+                return Promise.reject(errMsg);
+            })
+            .then(() => count({index: migrantIndexName}))
+            .then((_count) => {
+                if (docCount !== _count) {
+                    return Promise.reject(`reindex error, index: ${migrantIndexName} only has ${_count} docs, expected ${docCount} from index: ${index}`);
+                }
+                return true;
+            })
+            .then(() => _clientIndicesRequest('delete', { index: index }))
+            .then(() => _clientIndicesRequest('putAlias', { index: migrantIndexName, name: index })
+                .catch((err) => {
+                    const errMsg = `could not put alias for index: ${migrantIndexName}, name: ${index}, error: ${parseError(err)}`;
+                    return Promise.reject(errMsg);
+                }));
+    }
+
     function _createIndex(index, migrantIndexName, mapping, recordType, clusterName) {
         const existQuery = {index: index};
 
@@ -459,30 +502,30 @@ module.exports = function(client, logger, _opConfig) {
 
     function _verifyMapping(query, configMapping, recordType) {
         return _clientIndicesRequest('getMapping', query)
-            .then(mapping => _areSameMappings(query.index, configMapping, mapping, recordType))
+            .then(mapping => _areSameMappings(configMapping, mapping, recordType))
             .catch((err) => {
                 const errMsg = `could not get mapping for query ${JSON.stringify(query)}, error: ${parseError(err)}`;
                 return Promise.reject(errMsg);
             });
     }
 
-    function _areSameMappings(originalIndexName, configMapping, mapping, recordType) {
+    function _areSameMappings(configMapping, mapping, recordType) {
         const sysMapping = {};
-        const indName = Object.keys(mapping)[0];
-        sysMapping[indName] = {mappings: configMapping.mappings};
+        const index = Object.keys(mapping)[0];
+        sysMapping[index] = { mappings: configMapping.mappings };
         // elasticsearch for some reason converts false to 'false' for dynamic key
-        if (mapping[indName].mappings[recordType].dynamic !== undefined) {
-            mapping[indName].mappings[recordType].dynamic = !'false';
+        if (mapping[index].mappings[recordType].dynamic !== undefined) {
+            mapping[index].mappings[recordType].dynamic = !'false';
         }
-        const isSame = _.isEqual(mapping, sysMapping);
-        return {isSame, indName: originalIndexName};
+        const areEqual = _.isEqual(mapping, sysMapping);
+        return { areEqual };
     }
 
     function _checkAndUpdateMapping(clusterName, index, migrantIndexName, mapping, recordType) {
         const query = { index: index };
         return _verifyMapping(query, mapping, recordType)
             .then((results) => {
-                if (results.isSame) return true;
+                if (results.areEqual) return true;
                 // For state and analytics, we will not _migrate, but will post template so that
                 // the next index will have them
                 if (recordType === 'state' || recordType === 'analytics') {
@@ -506,7 +549,8 @@ module.exports = function(client, logger, _opConfig) {
         return Promise.resolve(true);
     }
 
-    function indexSetup(clusterName, newIndex, migrantIndexName, mapping, recordType, clientName) {
+    function indexSetup(clusterName, newIndex, migrantIndexName, mapping, recordType, clientName, _time) {
+        const intervalTime = _time || 3000;
         return new Promise((resolve, reject) => {
             _createIndex(newIndex, migrantIndexName, mapping, recordType, clusterName)
                 .then(() => _isAvailable(newIndex))
@@ -517,7 +561,6 @@ module.exports = function(client, logger, _opConfig) {
                     if (err.fatal) reject(errMsg);
 
                     logger.info(`Attempting to connect to elasticsearch: ${clientName}`);
-
                     const checking = setInterval(() => _createIndex(newIndex, migrantIndexName, mapping, recordType, clusterName)
                         .then(() => {
                             const query = {index: newIndex};
@@ -530,10 +573,8 @@ module.exports = function(client, logger, _opConfig) {
                                     results[newIndex].shards,
                                     shard => shard.primary === true
                                 );
-
                                 bool = _.every(isPrimary, shard => shard.stage === 'DONE');
                             }
-
                             if (bool) {
                                 clearInterval(checking);
                                 logger.info('connection to elasticsearch has been established');
@@ -545,52 +586,9 @@ module.exports = function(client, logger, _opConfig) {
                         .catch((checkingError) => {
                             const checkingErrMsg = parseError(checkingError);
                             logger.info(`Attempting to connect to elasticsearch: ${clientName}, error: ${checkingErrMsg}`);
-                        }), 3000);
+                        }), intervalTime);
                 });
         });
-    }
-
-    function _migrate(index, migrantIndexName, mapping, recordType, clusterName) {
-        const reindexQuery = {
-            slices: 4,
-            waitForCompletion: true,
-            refresh: true,
-            body: {
-                source: {
-                    index: index
-                },
-                dest: {
-                    index: migrantIndexName
-                }
-            }
-        };
-        let docCount;
-
-        return Promise.all([
-            count({index: index}),
-            _createIndex(migrantIndexName, null, mapping, recordType, clusterName)
-        ])
-            .spread((_count) => {
-                docCount = _count;
-                return _clientRequest('reindex', reindexQuery);
-            })
-            .catch((err) => {
-                const errMsg = `could not reindex for query ${JSON.stringify(reindexQuery)}, error: ${parseError(err)}`;
-                return Promise.reject(errMsg);
-            })
-            .then(() => count({index: migrantIndexName}))
-            .then((_count) => {
-                if (docCount !== _count) {
-                    return Promise.reject(`reindex error, index: ${migrantIndexName} only has ${_count} docs, expected ${docCount} from index: ${index}`);
-                }
-                return true;
-            })
-            .then(() => _clientIndicesRequest('delete', {index: index}))
-            .then(() => _clientIndicesRequest('putAlias', {index: migrantIndexName, name: index})
-                .catch((err) => {
-                    const errMsg = `could not put alias for index: ${migrantIndexName}, name: ${index}, error: ${parseError(err)}`;
-                    return Promise.reject(errMsg);
-                }));
     }
 
     return {
