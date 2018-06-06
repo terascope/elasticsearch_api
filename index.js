@@ -448,7 +448,7 @@ module.exports = function(client, logger, _opConfig) {
                 return _clientRequest('reindex', reindexQuery);
             })
             .catch((err) => {
-                const errMsg = `could not reindex for query ${JSON.stringify(reindexQuery)}, error: ${parseError(err)}`;
+                const errMsg = `could not reindex for query ${JSON.stringify(reindexQuery)}, error: ${_parseTheError(err)}`;
                 return Promise.reject(errMsg);
             })
             .then(() => count({index: migrantIndexName}))
@@ -464,6 +464,12 @@ module.exports = function(client, logger, _opConfig) {
                     const errMsg = `could not put alias for index: ${migrantIndexName}, name: ${index}, error: ${parseError(err)}`;
                     return Promise.reject(errMsg);
                 }));
+    }
+
+    function _parseTheError(err) {
+       if (typeof err === 'string') return err;
+       if(err.errMessage) return err.errMessage;
+       return parseError(err)
     }
 
     function _createIndex(index, migrantIndexName, mapping, recordType, clusterName) {
@@ -493,9 +499,9 @@ module.exports = function(client, logger, _opConfig) {
                 }
                 return _checkAndUpdateMapping(clusterName, index, migrantIndexName, mapping, recordType)
                     .catch((err) => {
-                        const errMsg = `error while migrating index: ${existQuery.index}, error: ${parseError(err)}`;
+                        const errMsg = `error while migrating index: ${existQuery.index}, error: ${_parseTheError(err)}`;
                         logger.error(errMsg);
-                        return Promise.reject({fatal: true, message: errMsg});
+                        return Promise.reject({fatal: true, errMessage: errMsg});
                     });
             });
     }
@@ -522,6 +528,7 @@ module.exports = function(client, logger, _opConfig) {
     }
 
     function _checkAndUpdateMapping(clusterName, index, migrantIndexName, mapping, recordType) {
+        if (index === migrantIndexName || migrantIndexName === null) return Promise.reject(`index and migrant index names are the same: ${index}, please update the appropriate pacakge.json version`);
         const query = { index: index };
         return _verifyMapping(query, mapping, recordType)
             .then((results) => {
@@ -556,9 +563,9 @@ module.exports = function(client, logger, _opConfig) {
                 .then(() => _isAvailable(newIndex))
                 .then(() => resolve(true))
                 .catch((err) => {
+                    if (err.fatal) return reject(err.message);
                     const errMsg = parseError(err);
                     logger.error(`Error created index: ${errMsg}`);
-                    if (err.fatal) reject(errMsg);
 
                     logger.info(`Attempting to connect to elasticsearch: ${clientName}`);
                     const checking = setInterval(() => _createIndex(newIndex, migrantIndexName, mapping, recordType, clusterName)
