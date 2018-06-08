@@ -2,9 +2,10 @@
 
 const _ = require('lodash');
 const Promise = require('bluebird');
+const debug = require('debug')('elasticsearch_api');
+const esApi = require('../index');
 
 describe('elasticsearch_api', () => {
-    const esApi = require('../index');
     let recordsReturned = [];
     let searchQuery; // eslint-disable-line
     let failed = 0;
@@ -268,18 +269,24 @@ describe('elasticsearch_api', () => {
     };
 
     const logger = {
-        error() {
+        error(...args) {
+            debug('error:', ...args);
         },
-        info() {
+        info(...args) {
+            debug('error:', ...args);
         },
-        warn(msg) {
-            warnMsg = msg;
+        warn(...args) {
+            ([warnMsg] = args);
+            debug('warn:', ...args);
         },
-        trace() {
+        trace(...args) {
+            debug('trace:', ...args);
         },
-        debug() {
+        debug(...args) {
+            debug('debug:', ...args);
         },
-        flush() {
+        flush(...args) {
+            debug('flush:', ...args);
         }
     };
 

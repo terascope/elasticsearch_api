@@ -608,8 +608,8 @@ module.exports = function elasticsearchApi(client, logger, _opConfig) {
                     .catch((err) => {
                         reject(err.message);
                     });
-                attemptToCreateIndex();
             };
+            attemptToCreateIndex();
         });
     }
 
