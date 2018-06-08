@@ -2,10 +2,10 @@
 
 const _ = require('lodash');
 const Promise = require('bluebird');
-const debug = require('debug')('elasticsearch_api');
+const debug = require('debug')('elasticsearch-api');
 const esApi = require('../index');
 
-describe('elasticsearch_api', () => {
+describe('elasticsearch-api', () => {
     let recordsReturned = [];
     let searchQuery; // eslint-disable-line
     let failed = 0;

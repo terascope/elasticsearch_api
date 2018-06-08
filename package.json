@@ -1,11 +1,14 @@
 {
-  "name": "elasticsearch_api",
+  "name": "@terascope/elasticsearch-api",
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "1.0.1",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "lint": "eslint lib/**/*.js",
-    "lint:fix": "eslint --fix lib/**/*.js",
+    "lint": "eslint *.js",
+    "lint:fix": "eslint --fix *.js",
     "test": "nyc -x spec/ --reporter=text-summary jasmine && nyc report --reporter=html",
     "report-coverage": "nyc report --reporter=text-lcov > coverage/coverage.lcov && codecov"
   },
@@ -13,8 +16,7 @@
     "cache": true,
     "all": true,
     "include": [
-      "*.js",
-      "lib/**/*.js"
+      "*.js"
     ],
     "reporter": [
       "text-summary",

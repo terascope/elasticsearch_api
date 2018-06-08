@@ -385,7 +385,7 @@ module.exports = function elasticsearchApi(client, logger, _opConfig) {
                 // this iteration we will not handle with no living connections issue
                 retry();
             } else {
-                const errMsg = `invoking elasticsearch_api ${fn.name} resulted in a runtime error: ${parseError(err)}`;
+                const errMsg = `invoking elasticsearch-api ${fn.name} resulted in a runtime error: ${parseError(err)}`;
                 errorLogger.error(errMsg);
                 reject(errMsg);
             }
