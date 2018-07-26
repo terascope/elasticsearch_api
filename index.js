@@ -308,7 +308,7 @@ module.exports = function elasticsearchApi(client = {}, logger, _opConfig) {
             throw new Error('geo box search requires geo_field to be set if any other geo query parameters are provided');
         }
 
-        if (!((isBoundingBoxQuery() && geoField) || (isGeoDistanceQuery() && geoField))) {
+        if (geoField && !(isBoundingBoxQuery() || isGeoDistanceQuery())) {
             throw new Error('if geo_field is specified then the appropriate geo_box or geo_distance query parameters need to be provided as well');
         }
     }
