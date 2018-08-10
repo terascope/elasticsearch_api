@@ -521,7 +521,7 @@ module.exports = function elasticsearchApi(client = {}, logger, _opConfig) {
                 // this iteration we will not handle with no living connections issue
                 retry();
             } else {
-                const errMsg = `invoking elasticsearch-api ${fn.name} resulted in a runtime error: ${parseError(err)}`;
+                const errMsg = `invoking elasticsearch-api ${fn.name} resulted in a runtime error: ${_parseTheError(err)}`;
                 errorLogger.error(errMsg);
                 reject(errMsg);
             }
@@ -535,7 +535,6 @@ module.exports = function elasticsearchApi(client = {}, logger, _opConfig) {
 
     function _isAvailable(index) {
         const query = { index, q: '*' };
-
         return new Promise(((resolve) => {
             search(query)
                 .then((results) => {
@@ -631,6 +630,7 @@ module.exports = function elasticsearchApi(client = {}, logger, _opConfig) {
                             return true;
                         });
                 }
+
                 return _checkAndUpdateMapping(
                     clusterName,
                     index,
@@ -695,56 +695,40 @@ module.exports = function elasticsearchApi(client = {}, logger, _opConfig) {
         return Promise.resolve(true);
     }
 
+    function indexActive(newIndex, migrantName) {
+        const query = { index: newIndex };
+        return indexRecovery(query)
+            .then((results) => {
+                let bool = false;
+                if (Object.keys(results).length !== 0) {
+                    const shards = _.get(results, [newIndex, 'shards']) || _.get(results, [migrantName, 'shards']);
+                    if (shards && shards.length > 0) {
+                        const isPrimary = _.filter(shards, shard => shard.primary === true);
+                        bool = _.every(isPrimary, shard => shard.stage === 'DONE');
+                    }
+                }
+                if (bool) return Promise.resolve(true);
+                return Promise.reject({ fatal: false, errMessage: 'index not active' });
+            });
+    }
+
     function indexSetup(clusterName, newIndex, migrantIndexName, mapping, recordType, clientName, _time) { // eslint-disable-line
-        const giveupAfter = Date.now() + (_time || 3000);
         return new Promise((resolve, reject) => {
-            const attemptToCreateIndex = () => {
+            const retry = _errorHandler(attemptToCreateIndex, null, reject, logger);
+
+            function attemptToCreateIndex() {
                 _createIndex(newIndex, migrantIndexName, mapping, recordType, clusterName)
                     .then(() => _isAvailable(newIndex))
-                    .catch((err) => {
-                        if (err.fatal) return Promise.reject(err);
-                        const errMsg = parseError(err);
-                        logger.error(`Error created index: ${errMsg}`);
-
-                        logger.info(`Attempting to connect to elasticsearch: ${clientName}`);
-                        return _createIndex(
-                            newIndex,
-                            migrantIndexName,
-                            mapping,
-                            recordType,
-                            clusterName
-                        ).then(() => {
-                            const query = { index: newIndex };
-                            return indexRecovery(query);
-                        }).then((results) => {
-                            let bool = false;
-                            if (Object.keys(results).length !== 0) {
-                                const isPrimary = _.filter(
-                                    results[newIndex].shards,
-                                    shard => shard.primary === true
-                                );
-                                bool = _.every(isPrimary, shard => shard.stage === 'DONE');
-                            }
-                            if (bool) {
-                                logger.info('connection to elasticsearch has been established');
-                                return _isAvailable(newIndex);
-                            }
-                            return Promise.resolve();
-                        }).catch((checkingError) => {
-                            const checkingErrMsg = parseError(checkingError);
-                            logger.info(`Attempting to connect to elasticsearch: ${clientName}, error: ${checkingErrMsg}`);
-                            if (Date.now() > giveupAfter) {
-                                return Promise.reject(new Error(`Unable to create index ${newIndex}`));
-                            }
-                            return Promise.resolve();
-                        })
-                            .then(() => attemptToCreateIndex());
-                    })
+                    .then(() => indexActive(newIndex, migrantIndexName))
                     .then(() => resolve(true))
                     .catch((err) => {
-                        reject(err.message);
+                        if (err.fatal) return Promise.reject(err.errMessage);
+                        const errMsg = parseError(err);
+                        logger.error(`Error created index: ${err.errMessage || errMsg}`);
+                        logger.info(`Attempting to initialize index to elasticsearch: ${clientName}`);
+                        return retry(err);
                     });
-            };
+            }
             attemptToCreateIndex();
         });
     }
